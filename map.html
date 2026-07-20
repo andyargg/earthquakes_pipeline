@@ -81,6 +81,14 @@
     let deckOverlay;
     let todosLosSismos = [];
 
+    // Continentes fijos (Natural Earth) en vez de derivarlos de los datos:
+    // ya no tenemos el dataset completo en el navegador para inspeccionarlo,
+    // porque ahora se pide filtrado al endpoint en vez de una vez entero.
+    const CONTINENTES = [
+      'Africa', 'Antarctica', 'Asia', 'Europe', 'North America',
+      'Oceania', 'South America', 'Océano'
+    ];
+
     function capaSismos(features) {
       // Radio y color dependen de la magnitud de cada sismo (accessors por
       // dato) - algo que MapLibre puede hacer con expressions pero deck.gl
@@ -109,123 +117,118 @@
     }
 
     function actualizarVista() {
-      const desde = parseInt(document.getElementById('yearMin').value);
-      const hasta = parseInt(document.getElementById('yearMax').value);
-      document.getElementById('yearMinLabel').textContent = desde;
-      document.getElementById('yearMaxLabel').textContent = hasta;
-
-      const magDesde = parseFloat(document.getElementById('magMin').value);
-      const magHasta = parseFloat(document.getElementById('magMax').value);
-      document.getElementById('magMinLabel').textContent = magDesde.toFixed(1);
-      document.getElementById('magMaxLabel').textContent = magHasta.toFixed(1);
-
       const activos = Array.from(document.querySelectorAll('.cont-check:checked'))
         .map(el => el.value);
 
-      const filtrados = todosLosSismos.filter(
-        f => f.properties.year >= desde && f.properties.year <= hasta
-          && f.properties.mag >= magDesde && f.properties.mag <= magHasta
-          && activos.includes(continenteDe(f))
-      );
+      const filtrados = todosLosSismos.filter(f => activos.includes(continenteDe(f)));
 
       deckOverlay.setProps({ layers: [capaSismos(filtrados)] });
 
       const total = filtrados.length;
       const enTierra = filtrados.filter(f => f.properties.en_tierra).length;
       const enMar = total - enTierra;
+      const desde = document.getElementById('yearMin').value;
+      const hasta = document.getElementById('yearMax').value;
       document.getElementById('stats').innerHTML =
         `<b>${total}</b> sismos (${desde}-${hasta})<br>` +
         `${enTierra} en tierra &middot; ${enMar} en mar`;
     }
 
-    map.on('load', () => {
-      fetch('earthquakes.geojson', { cache: 'no-store' })
+    function cargarDatos() {
+      const yearMin = document.getElementById('yearMin').value;
+      const yearMax = document.getElementById('yearMax').value;
+      const magMin = document.getElementById('magMin').value;
+      const magMax = document.getElementById('magMax').value;
+
+      document.getElementById('stats').innerHTML = 'cargando...';
+
+      const url = `/api/earthquakes?year_min=${yearMin}&year_max=${yearMax}`
+        + `&mag_min=${magMin}&mag_max=${magMax}`;
+
+      fetch(url)
         .then(res => res.json())
         .then(data => {
           todosLosSismos = data.features;
-
-          // Recorrido manual en vez de Math.min(...años): con 160 mil
-          // elementos, pasarlos todos como argumentos puede desbordar el
-          // límite de la pila del navegador.
-          let minAnio = Infinity;
-          let maxAnio = -Infinity;
-          let minMag = Infinity;
-          let maxMag = -Infinity;
-          for (const f of todosLosSismos) {
-            const y = f.properties.year;
-            const m = f.properties.mag;
-            if (y < minAnio) minAnio = y;
-            if (y > maxAnio) maxAnio = y;
-            if (m < minMag) minMag = m;
-            if (m > maxMag) maxMag = m;
-          }
-
-          const yearMin = document.getElementById('yearMin');
-          const yearMax = document.getElementById('yearMax');
-          yearMin.min = yearMax.min = minAnio;
-          yearMin.max = yearMax.max = maxAnio;
-          yearMin.value = minAnio;
-          yearMax.value = maxAnio;
-
-          const magMin = document.getElementById('magMin');
-          const magMax = document.getElementById('magMax');
-          magMin.min = magMax.min = minMag;
-          magMin.max = magMax.max = maxMag;
-          magMin.value = minMag;
-          magMax.value = maxMag;
-
-          // Arma los checkboxes a partir de los continentes presentes en los
-          // datos (no una lista fija), para no depender de adivinar los
-          // nombres exactos que trae la tabla countries de Natural Earth.
-          // Empiezan destildados: el mapa arranca vacío hasta que el usuario
-          // elige qué continentes quiere ver.
-          const OCULTOS = ['Seven seas (open ocean)'];
-          const continentes = [...new Set(todosLosSismos.map(continenteDe))]
-            .filter(c => !OCULTOS.includes(c))
-            .sort();
-          const contDiv = document.getElementById('continentes');
-          contDiv.innerHTML = continentes.map(c => `
-            <label><input type="checkbox" class="cont-check" value="${c}"> ${c}</label>
-          `).join('');
-          contDiv.addEventListener('change', actualizarVista);
-
-          deckOverlay = new deck.MapboxOverlay({
-            interleaved: true,
-            layers: [capaSismos(todosLosSismos)],
-            getTooltip: ({ object }) => object && {
-              html: `<b>${object.properties.place}</b><br/>Magnitud: ${object.properties.mag}`
-            }
-          });
-          map.addControl(deckOverlay);
-
           actualizarVista();
-
-          yearMin.addEventListener('input', () => {
-            if (parseInt(yearMin.value) > parseInt(yearMax.value)) {
-              yearMax.value = yearMin.value;
-            }
-            actualizarVista();
-          });
-          yearMax.addEventListener('input', () => {
-            if (parseInt(yearMax.value) < parseInt(yearMin.value)) {
-              yearMin.value = yearMax.value;
-            }
-            actualizarVista();
-          });
-
-          magMin.addEventListener('input', () => {
-            if (parseFloat(magMin.value) > parseFloat(magMax.value)) {
-              magMax.value = magMin.value;
-            }
-            actualizarVista();
-          });
-          magMax.addEventListener('input', () => {
-            if (parseFloat(magMax.value) < parseFloat(magMin.value)) {
-              magMin.value = magMax.value;
-            }
-            actualizarVista();
-          });
         });
+    }
+
+    map.on('load', () => {
+      const yearMin = document.getElementById('yearMin');
+      const yearMax = document.getElementById('yearMax');
+      const magMin = document.getElementById('magMin');
+      const magMax = document.getElementById('magMax');
+
+      // Rango conocido del dataset (ver ingest_earthquakes.py: últimos 10
+      // años, magnitud mínima 4.0). Arranca mostrando solo los últimos 2
+      // años, para que la primera carga sea liviana.
+      const anioActual = new Date().getFullYear();
+      yearMin.min = yearMax.min = 2015;
+      yearMin.max = yearMax.max = anioActual;
+      yearMin.value = anioActual - 2;
+      yearMax.value = anioActual;
+      document.getElementById('yearMinLabel').textContent = yearMin.value;
+      document.getElementById('yearMaxLabel').textContent = yearMax.value;
+
+      magMin.min = magMax.min = 4;
+      magMin.max = magMax.max = 9.5;
+      magMin.value = 4;
+      magMax.value = 9.5;
+      document.getElementById('magMinLabel').textContent = '4.0';
+      document.getElementById('magMaxLabel').textContent = '9.5';
+
+      // Checkboxes de continente: arrancan destildados, el mapa entra vacío
+      // hasta que el usuario elige qué continentes quiere ver. No hace falta
+      // refetch al tildar/destildar, es un filtro puramente local.
+      const contDiv = document.getElementById('continentes');
+      contDiv.innerHTML = CONTINENTES.map(c => `
+        <label><input type="checkbox" class="cont-check" value="${c}"> ${c}</label>
+      `).join('');
+      contDiv.addEventListener('change', actualizarVista);
+
+      deckOverlay = new deck.MapboxOverlay({
+        interleaved: true,
+        layers: [],
+        getTooltip: ({ object }) => object && {
+          html: `<b>${object.properties.place}</b><br/>Magnitud: ${object.properties.mag}`
+        }
+      });
+      map.addControl(deckOverlay);
+
+      cargarDatos();
+
+      // 'input' actualiza el número mientras arrastrás; 'change' (cuando
+      // soltás) es lo que dispara el pedido al servidor - si pidiéramos en
+      // cada 'input' bombardeamos la API mientras arrastrás el slider.
+      yearMin.addEventListener('input', () => {
+        document.getElementById('yearMinLabel').textContent = yearMin.value;
+      });
+      yearMax.addEventListener('input', () => {
+        document.getElementById('yearMaxLabel').textContent = yearMax.value;
+      });
+      yearMin.addEventListener('change', () => {
+        if (parseInt(yearMin.value) > parseInt(yearMax.value)) yearMax.value = yearMin.value;
+        cargarDatos();
+      });
+      yearMax.addEventListener('change', () => {
+        if (parseInt(yearMax.value) < parseInt(yearMin.value)) yearMin.value = yearMax.value;
+        cargarDatos();
+      });
+
+      magMin.addEventListener('input', () => {
+        document.getElementById('magMinLabel').textContent = parseFloat(magMin.value).toFixed(1);
+      });
+      magMax.addEventListener('input', () => {
+        document.getElementById('magMaxLabel').textContent = parseFloat(magMax.value).toFixed(1);
+      });
+      magMin.addEventListener('change', () => {
+        if (parseFloat(magMin.value) > parseFloat(magMax.value)) magMax.value = magMin.value;
+        cargarDatos();
+      });
+      magMax.addEventListener('change', () => {
+        if (parseFloat(magMax.value) < parseFloat(magMin.value)) magMin.value = magMax.value;
+        cargarDatos();
+      });
 
       // Oculta la etiqueta base "Falkland Islands" del estilo demotiles
       // (viene de un tileset externo que no controlamos) y la reemplaza

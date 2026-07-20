@@ -4,3 +4,4 @@ earthquakes.geojson
 50m_cultural/
 __pycache__/
 *.pyc
+.vercel
