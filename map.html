@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Sismos</title>
+  <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/deck.gl@latest/dist.min.js"></script>
+  <style>
+    body { margin: 0; }
+    #map { width: 100vw; height: 100vh; }
+    #stats {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 1;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px 14px;
+      border-radius: 4px;
+      font-family: sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    }
+    #controles {
+      position: absolute;
+      top: 90px;
+      left: 12px;
+      z-index: 1;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px 14px;
+      border-radius: 4px;
+      font-family: sans-serif;
+      font-size: 13px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      width: 220px;
+    }
+    #controles label {
+      display: block;
+      margin-top: 6px;
+    }
+    #controles input[type="range"] {
+      width: 100%;
+    }
+    #continentes {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #ccc;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    #continentes label {
+      display: block;
+      margin-top: 0;
+      font-weight: normal;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="stats">cargando...</div>
+  <div id="controles">
+    <label>Desde: <span id="yearMinLabel"></span></label>
+    <input type="range" id="yearMin">
+    <label>Hasta: <span id="yearMaxLabel"></span></label>
+    <input type="range" id="yearMax">
+    <label>Magnitud desde: <span id="magMinLabel"></span></label>
+    <input type="range" id="magMin" step="0.1">
+    <label>Magnitud hasta: <span id="magMaxLabel"></span></label>
+    <input type="range" id="magMax" step="0.1">
+    <div id="continentes"></div>
+  </div>
+  <script>
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://demotiles.maplibre.org/style.json',
+      center: [0, 20],
+      zoom: 1
+    });
+
+    let deckOverlay;
+    let todosLosSismos = [];
+
+    function capaSismos(features) {
+      // Radio y color dependen de la magnitud de cada sismo (accessors por
+      // dato) - algo que MapLibre puede hacer con expressions pero deck.gl
+      // resuelve de forma más directa, y escala mejor con datasets grandes.
+      return new deck.GeoJsonLayer({
+        id: 'earthquakes-deck',
+        data: { type: 'FeatureCollection', features },
+        pointType: 'circle',
+        pointRadiusUnits: 'pixels',
+        getPointRadius: d => Math.max(d.properties.mag - 3, 0.5) * 2,
+        pointRadiusMinPixels: 2,
+        pointRadiusMaxPixels: 14,
+        getFillColor: d => {
+          const mag = d.properties.mag;
+          if (mag >= 5) return [180, 0, 0, 200];
+          if (mag >= 3) return [255, 100, 0, 200];
+          return [255, 200, 0, 180];
+        },
+        pickable: true,
+        autoHighlight: true
+      });
+    }
+
+    function continenteDe(f) {
+      return f.properties.continente || 'Océano';
+    }
+
+    function actualizarVista() {
+      const desde = parseInt(document.getElementById('yearMin').value);
+      const hasta = parseInt(document.getElementById('yearMax').value);
+      document.getElementById('yearMinLabel').textContent = desde;
+      document.getElementById('yearMaxLabel').textContent = hasta;
+
+      const magDesde = parseFloat(document.getElementById('magMin').value);
+      const magHasta = parseFloat(document.getElementById('magMax').value);
+      document.getElementById('magMinLabel').textContent = magDesde.toFixed(1);
+      document.getElementById('magMaxLabel').textContent = magHasta.toFixed(1);
+
+      const activos = Array.from(document.querySelectorAll('.cont-check:checked'))
+        .map(el => el.value);
+
+      const filtrados = todosLosSismos.filter(
+        f => f.properties.year >= desde && f.properties.year <= hasta
+          && f.properties.mag >= magDesde && f.properties.mag <= magHasta
+          && activos.includes(continenteDe(f))
+      );
+
+      deckOverlay.setProps({ layers: [capaSismos(filtrados)] });
+
+      const total = filtrados.length;
+      const enTierra = filtrados.filter(f => f.properties.en_tierra).length;
+      const enMar = total - enTierra;
+      document.getElementById('stats').innerHTML =
+        `<b>${total}</b> sismos (${desde}-${hasta})<br>` +
+        `${enTierra} en tierra &middot; ${enMar} en mar`;
+    }
+
+    map.on('load', () => {
+      fetch('earthquakes.geojson', { cache: 'no-store' })
+        .then(res => res.json())
+        .then(data => {
+          todosLosSismos = data.features;
+
+          // Recorrido manual en vez de Math.min(...años): con 160 mil
+          // elementos, pasarlos todos como argumentos puede desbordar el
+          // límite de la pila del navegador.
+          let minAnio = Infinity;
+          let maxAnio = -Infinity;
+          let minMag = Infinity;
+          let maxMag = -Infinity;
+          for (const f of todosLosSismos) {
+            const y = f.properties.year;
+            const m = f.properties.mag;
+            if (y < minAnio) minAnio = y;
+            if (y > maxAnio) maxAnio = y;
+            if (m < minMag) minMag = m;
+            if (m > maxMag) maxMag = m;
+          }
+
+          const yearMin = document.getElementById('yearMin');
+          const yearMax = document.getElementById('yearMax');
+          yearMin.min = yearMax.min = minAnio;
+          yearMin.max = yearMax.max = maxAnio;
+          yearMin.value = minAnio;
+          yearMax.value = maxAnio;
+
+          const magMin = document.getElementById('magMin');
+          const magMax = document.getElementById('magMax');
+          magMin.min = magMax.min = minMag;
+          magMin.max = magMax.max = maxMag;
+          magMin.value = minMag;
+          magMax.value = maxMag;
+
+          // Arma los checkboxes a partir de los continentes presentes en los
+          // datos (no una lista fija), para no depender de adivinar los
+          // nombres exactos que trae la tabla countries de Natural Earth.
+          // Empiezan destildados: el mapa arranca vacío hasta que el usuario
+          // elige qué continentes quiere ver.
+          const OCULTOS = ['Seven seas (open ocean)'];
+          const continentes = [...new Set(todosLosSismos.map(continenteDe))]
+            .filter(c => !OCULTOS.includes(c))
+            .sort();
+          const contDiv = document.getElementById('continentes');
+          contDiv.innerHTML = continentes.map(c => `
+            <label><input type="checkbox" class="cont-check" value="${c}"> ${c}</label>
+          `).join('');
+          contDiv.addEventListener('change', actualizarVista);
+
+          deckOverlay = new deck.MapboxOverlay({
+            interleaved: true,
+            layers: [capaSismos(todosLosSismos)],
+            getTooltip: ({ object }) => object && {
+              html: `<b>${object.properties.place}</b><br/>Magnitud: ${object.properties.mag}`
+            }
+          });
+          map.addControl(deckOverlay);
+
+          actualizarVista();
+
+          yearMin.addEventListener('input', () => {
+            if (parseInt(yearMin.value) > parseInt(yearMax.value)) {
+              yearMax.value = yearMin.value;
+            }
+            actualizarVista();
+          });
+          yearMax.addEventListener('input', () => {
+            if (parseInt(yearMax.value) < parseInt(yearMin.value)) {
+              yearMin.value = yearMax.value;
+            }
+            actualizarVista();
+          });
+
+          magMin.addEventListener('input', () => {
+            if (parseFloat(magMin.value) > parseFloat(magMax.value)) {
+              magMax.value = magMin.value;
+            }
+            actualizarVista();
+          });
+          magMax.addEventListener('input', () => {
+            if (parseFloat(magMax.value) < parseFloat(magMin.value)) {
+              magMin.value = magMax.value;
+            }
+            actualizarVista();
+          });
+        });
+
+      // Oculta la etiqueta base "Falkland Islands" del estilo demotiles
+      // (viene de un tileset externo que no controlamos) y la reemplaza
+      // por un label propio con el nombre correcto.
+      map.setFilter('countries-label', [
+        'all',
+        ['!', ['any',
+          ['==', ['get', 'NAME'], 'Falkland Islands'],
+          ['==', ['get', 'NAME'], 'Falkland Is.'],
+          ['==', ['get', 'ABBREV'], 'Falk.'],
+          ['==', ['get', 'ISO_A2'], 'FK'],
+          ['==', ['get', 'ISO_A3'], 'FLK']
+        ]]
+      ]);
+
+      map.addSource('malvinas-label', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [-59.5, -51.75] },
+            properties: { name: 'Islas Malvinas' }
+          }]
+        }
+      });
+
+      map.addLayer({
+        id: 'malvinas-label',
+        type: 'symbol',
+        source: 'malvinas-label',
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-size': 12,
+          'text-font': ['Open Sans Semibold']
+        },
+        paint: {
+          'text-color': '#000000',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 1
+        }
+      });
+    });
+  </script>
+</body>
+</html>
