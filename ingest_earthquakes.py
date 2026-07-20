@@ -1,12 +1,16 @@
+import os
 import requests
 import psycopg2
 from psycopg2.extras import execute_values
 from datetime import date
+from dotenv import load_dotenv
+
+load_dotenv()
 
 MIN_MAGNITUDE = 4.0
 ANIOS = range(date.today().year - 10, date.today().year + 1)
 
-conn = psycopg2.connect(host="localhost", dbname="proyecto", user="postgres")
+conn = psycopg2.connect(os.environ["DATABASE_URL"])
 cur = conn.cursor()
 
 cur.execute("""

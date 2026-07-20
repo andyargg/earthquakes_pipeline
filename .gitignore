@@ -1,0 +1,6 @@
+.env
+earthquakes.geojson
+50m_physical/
+50m_cultural/
+__pycache__/
+*.pyc
