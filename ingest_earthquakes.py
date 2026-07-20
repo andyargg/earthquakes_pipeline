@@ -76,16 +76,16 @@ for anio in ANIOS:
         # sola vez por sismo nuevo, en vez de recalcularla cada vez que se
         # exporta el GeoJSON. Solo toca las filas recién insertadas.
         cur.execute("""
-            UPDATE earthquakes SET
+            UPDATE earthquakes AS e SET
                 en_tierra = EXISTS (
-                    SELECT 1 FROM land l WHERE ST_Intersects(geom, l.geom)
+                    SELECT 1 FROM land l WHERE ST_Intersects(e.geom, l.geom)
                 ),
                 continente = (
                     SELECT c.continent FROM countries c
-                    WHERE ST_Intersects(geom, c.geom)
+                    WHERE ST_Intersects(e.geom, c.geom)
                     LIMIT 1
                 )
-            WHERE en_tierra IS NULL;
+            WHERE e.en_tierra IS NULL;
         """)
         conn.commit()
 
