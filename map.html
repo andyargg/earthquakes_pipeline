@@ -42,6 +42,16 @@
     #controles input[type="range"] {
       width: 100%;
     }
+    #controles input[type="date"] {
+      width: 100%;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 3px 4px;
+      border: 1px solid #ccc;
+      border-radius: 2px;
+      background: #fff;
+    }
     #continentes {
       margin-top: 10px;
       padding-top: 8px;
@@ -60,10 +70,8 @@
   <div id="map"></div>
   <div id="stats">cargando...</div>
   <div id="controles">
-    <label>Desde: <span id="yearMinLabel"></span></label>
-    <input type="range" id="yearMin">
-    <label>Hasta: <span id="yearMaxLabel"></span></label>
-    <input type="range" id="yearMax">
+    <label>Desde: <input type="date" id="dateMin"></label>
+    <label>Hasta: <input type="date" id="dateMax"></label>
     <label>Magnitud desde: <span id="magMinLabel"></span></label>
     <input type="range" id="magMin" step="0.1">
     <label>Magnitud hasta: <span id="magMaxLabel"></span></label>
@@ -127,22 +135,22 @@
       const total = filtrados.length;
       const enTierra = filtrados.filter(f => f.properties.en_tierra).length;
       const enMar = total - enTierra;
-      const desde = document.getElementById('yearMin').value;
-      const hasta = document.getElementById('yearMax').value;
+      const desde = document.getElementById('dateMin').value;
+      const hasta = document.getElementById('dateMax').value;
       document.getElementById('stats').innerHTML =
-        `<b>${total}</b> sismos (${desde}-${hasta})<br>` +
+        `<b>${total}</b> sismos (${desde} a ${hasta})<br>` +
         `${enTierra} en tierra &middot; ${enMar} en mar`;
     }
 
     function cargarDatos() {
-      const yearMin = document.getElementById('yearMin').value;
-      const yearMax = document.getElementById('yearMax').value;
+      const dateMin = document.getElementById('dateMin').value;
+      const dateMax = document.getElementById('dateMax').value;
       const magMin = document.getElementById('magMin').value;
       const magMax = document.getElementById('magMax').value;
 
       document.getElementById('stats').innerHTML = 'cargando...';
 
-      const url = `/api/earthquakes?year_min=${yearMin}&year_max=${yearMax}`
+      const url = `/api/earthquakes?date_min=${dateMin}&date_max=${dateMax}`
         + `&mag_min=${magMin}&mag_max=${magMax}`;
 
       fetch(url)
@@ -154,21 +162,17 @@
     }
 
     map.on('load', () => {
-      const yearMin = document.getElementById('yearMin');
-      const yearMax = document.getElementById('yearMax');
+      const dateMin = document.getElementById('dateMin');
+      const dateMax = document.getElementById('dateMax');
       const magMin = document.getElementById('magMin');
       const magMax = document.getElementById('magMax');
 
       // Rango conocido del dataset (ver ingest_earthquakes.py: últimos 10
-      // años, magnitud mínima 4.0). Arranca mostrando solo los últimos 2
-      // años, para que la primera carga sea liviana.
-      const anioActual = new Date().getFullYear();
-      yearMin.min = yearMax.min = 2015;
-      yearMin.max = yearMax.max = anioActual;
-      yearMin.value = anioActual - 2;
-      yearMax.value = anioActual;
-      document.getElementById('yearMinLabel').textContent = yearMin.value;
-      document.getElementById('yearMaxLabel').textContent = yearMax.value;
+      // años, magnitud mínima 4.0). Arranca mostrando el rango completo.
+      dateMin.min = dateMax.min = '2015-01-01';
+      dateMin.max = dateMax.max = '2026-12-31';
+      dateMin.value = '2015-01-01';
+      dateMax.value = '2026-12-31';
 
       magMin.min = magMax.min = 4;
       magMin.max = magMax.max = 9.5;
@@ -197,24 +201,18 @@
 
       cargarDatos();
 
-      // 'input' actualiza el número mientras arrastrás; 'change' (cuando
-      // soltás) es lo que dispara el pedido al servidor - si pidiéramos en
-      // cada 'input' bombardeamos la API mientras arrastrás el slider.
-      yearMin.addEventListener('input', () => {
-        document.getElementById('yearMinLabel').textContent = yearMin.value;
-      });
-      yearMax.addEventListener('input', () => {
-        document.getElementById('yearMaxLabel').textContent = yearMax.value;
-      });
-      yearMin.addEventListener('change', () => {
-        if (parseInt(yearMin.value) > parseInt(yearMax.value)) yearMax.value = yearMin.value;
+      dateMin.addEventListener('change', () => {
+        if (dateMin.value > dateMax.value) dateMax.value = dateMin.value;
         cargarDatos();
       });
-      yearMax.addEventListener('change', () => {
-        if (parseInt(yearMax.value) < parseInt(yearMin.value)) yearMin.value = yearMax.value;
+      dateMax.addEventListener('change', () => {
+        if (dateMax.value < dateMin.value) dateMin.value = dateMax.value;
         cargarDatos();
       });
 
+      // 'input' actualiza el número mientras arrastrás; 'change' (cuando
+      // soltás) es lo que dispara el pedido al servidor - si pidiéramos en
+      // cada 'input' bombardeamos la API mientras arrastrás el slider.
       magMin.addEventListener('input', () => {
         document.getElementById('magMinLabel').textContent = parseFloat(magMin.value).toFixed(1);
       });

@@ -25,7 +25,8 @@ QUERY = """
     )
     FROM earthquakes
     WHERE usgs_id NOT IN ('us2000b26p', 'us1000aupt')
-      AND EXTRACT(YEAR FROM time) BETWEEN %(year_min)s AND %(year_max)s
+      AND time >= %(date_min)s
+      AND time < %(date_max)s::date + INTERVAL '1 day'
       AND mag BETWEEN %(mag_min)s AND %(mag_max)s;
 """
 
@@ -35,8 +36,8 @@ class handler(BaseHTTPRequestHandler):
         params = parse_qs(urlparse(self.path).query)
 
         filtros = {
-            "year_min": int(params.get("year_min", [2016])[0]),
-            "year_max": int(params.get("year_max", [2100])[0]),
+            "date_min": params.get("date_min", ["2015-01-01"])[0],
+            "date_max": params.get("date_max", ["2026-12-31"])[0],
             "mag_min": float(params.get("mag_min", [4.0])[0]),
             "mag_max": float(params.get("mag_max", [10.0])[0]),
         }
